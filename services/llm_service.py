@@ -194,15 +194,60 @@ class GroqService(AbstractLLMService):
                 model="llama-3.1-8b-instant",
                 messages=messages,
                 tools=tools,
+                tool_choice="auto",
                 stream=True,
             )
         
-            async for chunk in stream:
-                content = chunk.choices[0].delta.content or ""
-                await self.emit_complete_sentences(content, interaction_count)
+            complete_response = ""
+            function_name = ""
+            function_args = ""
         
+            async for chunk in stream:
+                delta = chunk.choices[0].delta
+                content = delta.content or ""
+                tool_calls = delta.tool_calls
+                if tool_calls:
+                    for tool_call in tool_calls:
+                        if tool_call.function and tool_call.function.name:
+                            logger.info(f"Function call detected: {tool_call.function.name}")
+                            function_name = tool_call.function.name
+                            function_args += tool_call.function.arguments or ""
+                else:
+                    complete_response += content
+                    await self.emit_complete_sentences(content, interaction_count)
+
+                if chunk.choices[0].finish_reason == "tool_calls":
+                    logger.info(f"Function call detected: {function_name}")
+                    function_to_call = self.available_functions[function_name]
+                    function_args = self.validate_function_args(function_args)
+
+                    tool_data = next((tool for tool in tools if tool['function']['name'] == function_name), None)
+                    say = tool_data['function']['say']
+
+                    await self.emit('llmreply', {
+                        "partialResponseIndex": None,
+                        "partialResponse": say
+                    }, interaction_count)
+
+                    function_response = await function_to_call(self.context, function_args)
+                                        
+                    logger.info(f"Function {function_name} called with args: {function_args}")
+
+                    if function_name != "end_call":
+                        await self.completion(function_response, interaction_count, 'function', function_name)
+
+            if self.sentence_buffer.strip():
+                await self.emit('llmreply', {
+                    "partialResponseIndex": self.partial_response_index,
+                    "partialResponse": self.sentence_buffer.strip()
+                }, interaction_count)
+                self.sentence_buffer = ""
+
+            self.user_context.append({"role": "assistant", "content": complete_response})
+
         except Exception as e:
             logger.error(f"Error in GroqService completion: {str(e)}")
+
 
 class AnthropicService(AbstractLLMService):
     def __init__(self, context: CallContext):
