@@ -18,6 +18,12 @@ from services.stream_service import StreamService
 from services.transcription_service import TranscriptionService
 from services.tts_service import TTSFactory
 
+
+## for ssl verification if needed
+"""import ssl
+import certifi
+ssl_context = ssl.create_default_context(cafile=certifi.where())"""
+
 dotenv.load_dotenv()
 app = FastAPI()
 logger = get_logger("App")
@@ -26,7 +32,7 @@ logger = get_logger("App")
 global call_contexts
 call_contexts = {}
 
-# First route that gets called by Twilio when call is initiated
+
 @app.post("/incoming")
 async def incoming_call() -> HTMLResponse:
     server = os.environ.get("SERVER")

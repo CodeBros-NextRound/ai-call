@@ -4,7 +4,7 @@ import os
 import re
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List
-
+from groq import AsyncGroq
 import anthropic
 from openai import AsyncOpenAI
 
@@ -180,6 +180,29 @@ class OpenAIService(AbstractLLMService):
         except Exception as e:
             logger.error(f"Error in OpenAIService completion: {str(e)}")
 
+class GroqService(AbstractLLMService):
+    def __init__(self, context: CallContext):
+        super().__init__(context)
+        self.groq = AsyncGroq(api_key=os.getenv("GROQ_API_KEY"))
+
+    async def completion(self, text: str, interaction_count: int, role: str = 'user', name: str = 'user'):
+        try:
+            self.user_context.append({"role": role, "content": text, "name": name})
+            messages = [{"role": "system", "content": self.system_message}] + self.user_context
+        
+            stream = await self.groq.chat.completions.create(
+                model="llama-3.1-8b-instant",
+                messages=messages,
+                tools=tools,
+                stream=True,
+            )
+        
+            async for chunk in stream:
+                content = chunk.choices[0].delta.content or ""
+                await self.emit_complete_sentences(content, interaction_count)
+        
+        except Exception as e:
+            logger.error(f"Error in GroqService completion: {str(e)}")
 
 class AnthropicService(AbstractLLMService):
     def __init__(self, context: CallContext):
@@ -253,5 +276,7 @@ class LLMFactory:
             return OpenAIService(context)
         elif service_name.lower() == "anthropic":
             return AnthropicService(context)
+        elif service_name.lower() == "groq":
+            return GroqService(context)
         else:
             raise ValueError(f"Unsupported LLM service: {service_name}")
