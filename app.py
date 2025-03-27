@@ -20,9 +20,9 @@ from services.tts_service import TTSFactory
 
 
 ## for ssl verification if needed
-"""import ssl
+import ssl
 import certifi
-ssl_context = ssl.create_default_context(cafile=certifi.where())"""
+ssl_context = ssl.create_default_context(cafile=certifi.where())
 
 dotenv.load_dotenv()
 app = FastAPI()

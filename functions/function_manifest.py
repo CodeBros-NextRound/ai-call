@@ -23,5 +23,40 @@ tools = [
             },
             "say": "Thank you for calling. Have a great day! Goodbye."
         }
+    },
+ {
+    "type": "function",
+    "function": {
+        "name": "schedule_meet",
+        "description": "Schedules a meeting in the user's Google Calendar only when the user provides a specific date, start time, end time, and purpose always wait for all these parameters only then call this function dont make you parameters on your own"
+        "",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "date": {
+                    "type": "string",
+                    "format": "date",
+                    "description": "The date of the meeting in ISO 8601 format (YYYY-MM-DD)."
+                },
+                "starttime": {
+                    "type": "string",
+                    "format": "time",
+                    "description": "The start time of the meeting in 24-hour format (HH:MM:SS)."
+                },
+                "endtime": {
+                    "type": "string",
+                    "format": "time",
+                    "description": "The end time of the meeting in 24-hour format (HH:MM:SS)."
+                },
+                "purpose": {
+                    "type": "string",
+                    "description": "The purpose or title of the meeting."
+                }
+            },
+            "required": ["date", "starttime", "endtime", "purpose"]
+        },
+        "say": "I have successfully scheduled a meeting for you."
     }
+}
+
 ]

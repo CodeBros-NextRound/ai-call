@@ -7,7 +7,6 @@ from typing import Any, Dict, List
 from groq import AsyncGroq
 import anthropic
 from openai import AsyncOpenAI
-
 from functions.function_manifest import tools
 from logger_config import get_logger
 from services.call_context import CallContext
@@ -44,7 +43,6 @@ class AbstractLLMService(EventEmitter, ABC):
         self.system_message = context.system_message
         self.initial_message = context.initial_message
 
-
     @abstractmethod
     async def completion(self, text: str, interaction_count: int, role: str = 'user', name: str = 'user'):
         pass
@@ -75,7 +73,6 @@ class AbstractLLMService(EventEmitter, ABC):
                     }
                 }
                 
-                # Remove 'description' from individual properties if present
                 for prop in anthropic_tool['input_schema']['properties'].values():
                     prop.pop('description', None)
                 
@@ -129,9 +126,8 @@ class OpenAIService(AbstractLLMService):
             complete_response = ""
             function_name = ""
             function_args = ""
-
             async for chunk in stream:
-                delta = chunk.choices[0].delta
+                delta = chunk.choices[0].deltas
                 content = delta.content or ""
                 tool_calls = delta.tool_calls
 
@@ -159,8 +155,11 @@ class OpenAIService(AbstractLLMService):
                     }, interaction_count)
 
                     self.user_context.append({"role": "assistant", "content": say})
-                    
-                    function_response = await function_to_call(self.context, function_args)
+
+                    if(function_name == "schedule_meet"):
+                        function_response = await function_to_call(function_args)
+                    else:
+                        function_response = await function_to_call(self.context, function_args)
                                         
                     logger.info(f"Function {function_name} called with args: {function_args}")
 
@@ -191,7 +190,7 @@ class GroqService(AbstractLLMService):
             messages = [{"role": "system", "content": self.system_message}] + self.user_context
         
             stream = await self.groq.chat.completions.create(
-                model="llama-3.1-8b-instant",
+                model="llama-3.3-70b-versatile",
                 messages=messages,
                 tools=tools,
                 tool_choice="auto",
@@ -218,23 +217,28 @@ class GroqService(AbstractLLMService):
 
                 if chunk.choices[0].finish_reason == "tool_calls":
                     logger.info(f"Function call detected: {function_name}")
-                    function_to_call = self.available_functions[function_name]
+                    function_to_call = self.available_functions.get(function_name)
                     function_args = self.validate_function_args(function_args)
-
+                    
                     tool_data = next((tool for tool in tools if tool['function']['name'] == function_name), None)
-                    say = tool_data['function']['say']
+                    if tool_data:
+                        say = tool_data['function'].get('say', "Processing function call...")
 
-                    await self.emit('llmreply', {
-                        "partialResponseIndex": None,
-                        "partialResponse": say
-                    }, interaction_count)
+                        await self.emit('llmreply', {
+                            "partialResponseIndex": None,
+                            "partialResponse": say
+                        }, interaction_count)
 
-                    function_response = await function_to_call(self.context, function_args)
-                                        
-                    logger.info(f"Function {function_name} called with args: {function_args}")
-
-                    if function_name != "end_call":
-                        await self.completion(function_response, interaction_count, 'function', function_name)
+                        if(function_name == "schedule_meet"):
+                            function_to_call(**function_args)
+                            function_response = "Meeting scheduled successfully."
+                            logger.info(f"Function {function_name} called with args: {function_args}")
+                        else:
+                            function_response = await function_to_call(self.context, function_args)
+                            logger.info(f"Function {function_name} called with args: {function_args}")
+                        
+                        if function_name != "end_call" and function_name != "schedule_meet":
+                            await self.completion(function_response, interaction_count, 'function', function_name)
 
             if self.sentence_buffer.strip():
                 await self.emit('llmreply', {
@@ -293,9 +297,11 @@ class AnthropicService(AbstractLLMService):
                             "partialResponse": say
                         }, interaction_count)
 
-                        function_response = await function_to_call(function_args)
-                                            
-                        logger.info(f"Function {function_name} called with args: {function_args}")
+                        if(function_name == "schedule_meet"):
+                            function_to_call(**function_args)
+                            function_response = "Meeting scheduled successfully."
+                        else:
+                            function_response = await function_to_call(self.context, function_args)
 
                         if function_name != "end_call":
                             await self.completion(function_response, interaction_count, 'function', function_name)
