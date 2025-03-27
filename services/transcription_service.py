@@ -1,5 +1,4 @@
 import os
-
 from deepgram import DeepgramClient, LiveOptions, LiveTranscriptionEvents
 
 from logger_config import get_logger
@@ -8,8 +7,12 @@ from services.event_emmiter import EventEmitter
 logger = get_logger("Transcription")
 
 class TranscriptionService(EventEmitter):
+    """
+    Service for transcribing audio using Deepgram.
+    """
     def __init__(self):
         super().__init__()
+        # Initialize Deepgram client with API key from environment variables
         self.client = DeepgramClient(os.getenv("DEEPGRAM_API_KEY"))
         self.deepgram_live = None
         self.final_result = ""
@@ -17,16 +20,19 @@ class TranscriptionService(EventEmitter):
         self.stream_sid = None
 
     def set_stream_sid(self, stream_id):
+        """Set the stream ID for the transcription service."""
         self.stream_sid = stream_id
 
     def get_stream_sid(self):
+        """Get the stream ID for the transcription service."""
         return self.stream_sid
 
     async def connect(self):
+        """Connect to the Deepgram live transcription service."""
         self.deepgram_live = self.client.listen.asynclive.v("1")
         await self.deepgram_live.start(LiveOptions(
             model="nova-2", 
-            language="hi", 
+            language="en",  # Changed from "hi" to "en" for English 
             encoding="mulaw",
             sample_rate=8000,
             channels=1,
@@ -36,6 +42,7 @@ class TranscriptionService(EventEmitter):
             utterance_end_ms=1000
         ))
 
+        # Register event handlers for Deepgram events
         self.deepgram_live.on(LiveTranscriptionEvents.Transcript, self.handle_transcription)
         self.deepgram_live.on(LiveTranscriptionEvents.Error, self.handle_error)
         self.deepgram_live.on(LiveTranscriptionEvents.Close, self.handle_close)
@@ -44,6 +51,7 @@ class TranscriptionService(EventEmitter):
         self.deepgram_live.on(LiveTranscriptionEvents.UtteranceEnd, self.handle_utterance_end)
 
     async def handle_utterance_end(self, self_obj, utterance_end):
+        """Handle the end of an utterance."""
         try:
             if not self.speech_final:
                 logger.info(f"UtteranceEnd received before speech was final, emit the text collected so far: {self.final_result}")
@@ -58,6 +66,7 @@ class TranscriptionService(EventEmitter):
             e.print_stack()
 
     async def handle_transcription(self, self_obj, result):
+        """Handle transcription results from Deepgram."""
         try:
             alternatives = result.channel.alternatives if hasattr(result, 'channel') else []
             text = alternatives[0].transcript if alternatives else ""
@@ -80,24 +89,30 @@ class TranscriptionService(EventEmitter):
 
             
     async def handle_error(self, self_obj, error):
+        """Handle errors from Deepgram."""
         logger.error(f"Deepgram error: {error}")
         self.is_connected = False
     
     async def handle_warning(self, self_obj, warning):
+        """Handle warnings from Deepgram."""
         logger.info('Deepgram warning:', warning)
 
     async def handle_metadata(self, self_obj, metadata):
+        """Handle metadata from Deepgram."""
         logger.info('Deepgram metadata:', metadata)
 
     async def handle_close(self, self_obj, close):
+        """Handle connection close event from Deepgram."""
         logger.info("Deepgram connection closed")
         self.is_connected = False
 
     async def send(self, payload: bytes):
+        """Send audio payload to Deepgram for transcription."""
         if self.deepgram_live:            
             await self.deepgram_live.send(payload)
     
     async def disconnect(self):
+        """Disconnect from the Deepgram live transcription service."""
         if self.deepgram_live:
             await self.deepgram_live.finish()
             self.deepgram_live = None

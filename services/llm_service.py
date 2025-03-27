@@ -44,7 +44,6 @@ class AbstractLLMService(EventEmitter, ABC):
         self.system_message = context.system_message
         self.initial_message = context.initial_message
 
-
     @abstractmethod
     async def completion(self, text: str, interaction_count: int, role: str = 'user', name: str = 'user'):
         pass
@@ -109,6 +108,13 @@ class AbstractLLMService(EventEmitter, ABC):
         # Keep the last (potentially incomplete) sentence in the buffer
         self.sentence_buffer = sentences[-1] if sentences else ""
 
+    async def emit_function_progress(self, message, status, interaction_count):
+        """Emit function progress updates"""
+        await self.emit('function_progress', {
+            'message': message,
+            'status': status
+        }, interaction_count)
+
 class OpenAIService(AbstractLLMService):
     def __init__(self, context: CallContext):
         super().__init__(context)
@@ -148,7 +154,14 @@ class OpenAIService(AbstractLLMService):
                 if chunk.choices[0].finish_reason == "tool_calls":
                     logger.info(f"Function call detected: {function_name}")
                     function_to_call = self.available_functions[function_name]
-                    function_args = self.validate_function_args(function_args)
+                    
+                    # Improved function argument handling
+                    try:
+                        parsed_args = self.validate_function_args(function_args)
+                        logger.info(f"Function arguments for {function_name}: {parsed_args}")
+                    except Exception as e:
+                        logger.error(f"Error parsing function arguments: {str(e)}. Raw args: {function_args}")
+                        parsed_args = {}
                     
                     tool_data = next((tool for tool in tools if tool['function']['name'] == function_name), None)
                     say = tool_data['function']['say']
@@ -158,11 +171,25 @@ class OpenAIService(AbstractLLMService):
                         "partialResponse": say
                     }, interaction_count)
 
+                    # Emit initial function progress
+                    await self.emit_function_progress(
+                        f"Starting {function_name.replace('_', ' ')}...",
+                        'started',
+                        interaction_count
+                    )
+
                     self.user_context.append({"role": "assistant", "content": say})
                     
-                    function_response = await function_to_call(self.context, function_args)
+                    function_response = await function_to_call(self.context, parsed_args)
+                    
+                    # Emit completion function progress
+                    await self.emit_function_progress(
+                        function_response,
+                        'completed',
+                        interaction_count
+                    )
                                         
-                    logger.info(f"Function {function_name} called with args: {function_args}")
+                    logger.info(f"Function {function_name} called with args: {parsed_args}")
 
                     if function_name != "end_call":
                         await self.completion(function_response, interaction_count, 'function', function_name)
