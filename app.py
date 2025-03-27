@@ -29,10 +29,14 @@ call_contexts = {}
 # First route that gets called by Twilio when call is initiated
 @app.post("/incoming")
 async def incoming_call() -> HTMLResponse:
+    """
+    Handles incoming calls from Twilio.
+    It creates a TwiML response to connect the call to a WebSocket stream.
+    """
     server = os.environ.get("SERVER")
     response = VoiceResponse()
     connect = Connect()
-    connect.stream(url=f"wss://{server}/connection")
+    connect.stream(url=f"wss://{server}/connection")  # Connect to the WebSocket endpoint
     response.append(connect)
     return HTMLResponse(content=str(response), status_code=200)
 
@@ -50,6 +54,11 @@ async def get_call_recording(call_sid: str):
 # Websocket route for Twilio to get media stream
 @app.websocket("/connection")
 async def websocket_endpoint(websocket: WebSocket):
+    """
+    WebSocket endpoint for handling media streams from Twilio.
+    It processes incoming media, transcribes audio, generates LLM responses,
+    and streams audio back to Twilio.
+    """
     await websocket.accept()
 
     llm_service_name = os.getenv("LLM_SERVICE", "openai")
@@ -58,6 +67,7 @@ async def websocket_endpoint(websocket: WebSocket):
     logger.info(f"Using LLM service: {llm_service_name}")
     logger.info(f"Using TTS service: {tts_service_name}")
 
+    # Initialize services
     llm_service = LLMFactory.get_llm_service(llm_service_name, CallContext())
     stream_service = StreamService(websocket)
     transcription_service = TranscriptionService()
@@ -69,9 +79,11 @@ async def websocket_endpoint(websocket: WebSocket):
     await transcription_service.connect()
 
     async def process_media(msg):
+        """Processes incoming media messages by decoding the audio payload and sending it to the transcription service."""
         await transcription_service.send(base64.b64decode(msg['media']['payload']))
 
     async def handle_transcription(text):
+        """Handles transcribed text by sending it to the LLM service for processing."""
         nonlocal interaction_count
         if not text:
             return
@@ -80,17 +92,21 @@ async def websocket_endpoint(websocket: WebSocket):
         interaction_count += 1
 
     async def handle_llm_reply(llm_reply, icount):
+        """Handles LLM replies by sending them to the TTS service for speech generation."""
         logger.info(f"Interaction {icount}: LLM -> TTS: {llm_reply['partialResponse']}")
         await tts_service.generate(llm_reply, icount)
 
     async def handle_speech(response_index, audio, label, icount):
+        """Handles generated speech by buffering it in the stream service for sending to Twilio."""
         logger.info(f"Interaction {icount}: TTS -> TWILIO: {label}")
         await stream_service.buffer(response_index, audio)
 
     async def handle_audio_sent(mark_label):
+        """Handles audio sent events by adding a mark label to the queue."""
         marks.append(mark_label)
 
     async def handle_utterance(text, stream_sid):
+        """Handles user utterances, clears system if interruption is detected."""
         try:
             if len(marks) > 0 and text.strip():
                 logger.info("Intruption detected, clearing system.")
@@ -107,9 +123,22 @@ async def websocket_endpoint(websocket: WebSocket):
             logger.error(f"Error while handling utterance: {e}")
             e.print_stack()
 
+    async def handle_function_progress(progress_data, icount):
+        """Handles function progress updates by sending them to the LLM and TTS pipelines."""
+        logger.info(f"Function progress: {progress_data['message']}")
+        
+        # Send progress updates through the LLM and TTS pipeline for user feedback
+        if progress_data['status'] != 'completed':  # Avoid duplicate messages with final result
+            await tts_service.generate({
+                "partialResponseIndex": None,
+                "partialResponse": progress_data['message']
+            }, icount)
+
+    # Register event handlers
     transcription_service.on('utterance', handle_utterance)
     transcription_service.on('transcription', handle_transcription)
     llm_service.on('llmreply', handle_llm_reply)
+    llm_service.on('function_progress', handle_function_progress)  # Register directly on llm_service
     tts_service.on('speech', handle_speech)
     stream_service.on('audiosent', handle_audio_sent)
 
@@ -117,6 +146,7 @@ async def websocket_endpoint(websocket: WebSocket):
     message_queue = asyncio.Queue()
 
     async def websocket_listener():
+        """Listens for incoming messages from the WebSocket and puts them in the message queue."""
         try:
             while True:
                 data = await websocket.receive_text()
@@ -125,9 +155,11 @@ async def websocket_endpoint(websocket: WebSocket):
             logger.info("WebSocket disconnected")
 
     async def message_processor():
+        """Processes messages from the message queue, handling start, media, mark, and stop events."""
         while True:
             msg = await message_queue.get()
             if msg['event'] == 'start':
+                # Extract stream and call SIDs from the start event
                 stream_sid = msg['start']['streamSid']
                 call_sid = msg['start']['callSid']
 
@@ -179,6 +211,7 @@ async def websocket_endpoint(websocket: WebSocket):
         await transcription_service.disconnect()
 
 def get_twilio_client():
+    """Retrieves a Twilio client using credentials from environment variables."""
     return Client(os.getenv("TWILIO_ACCOUNT_SID"), os.getenv("TWILIO_AUTH_TOKEN"))
 
 # API route to initiate a call via UI
