@@ -122,6 +122,25 @@ class OpenAIService(AbstractLLMService):
 
     async def completion(self, text: str, interaction_count: int, role: str = 'user', name: str = 'user'):
         try:
+            # Check for recursive function calls to prevent loops
+            if role == 'function' and name in ['send_whatsapp_info', 'send_whatsapp_summary']:
+                # If we're getting a response from these functions, don't immediately 
+                # send it back to OpenAI as it tends to trigger the same function again
+                self.user_context.append({"role": role, "content": text, "name": name})
+                
+                # Add a synthetic assistant response to prevent the loop
+                synthetic_response = "I've processed your request. Is there anything else you'd like to know?"
+                self.user_context.append({"role": "assistant", "content": synthetic_response})
+                
+                # Send the synthetic response to TTS
+                await self.emit('llmreply', {
+                    "partialResponseIndex": self.partial_response_index,
+                    "partialResponse": synthetic_response
+                }, interaction_count)
+                self.partial_response_index += 1
+                
+                return
+            
             self.user_context.append({"role": role, "content": text, "name": name})
             messages = [{"role": "system", "content": self.system_message}] + self.user_context
         
@@ -159,6 +178,34 @@ class OpenAIService(AbstractLLMService):
                     try:
                         parsed_args = self.validate_function_args(function_args)
                         logger.info(f"Function arguments for {function_name}: {parsed_args}")
+                        
+                        # Extra validation for WhatsApp info function to prevent empty queries
+                        if function_name == "send_whatsapp_info" and "query" not in parsed_args:
+                            # Extract potential query from recent user context
+                            recent_user_msg = ""
+                            for msg in reversed(self.user_context[-5:]):
+                                if msg['role'] == 'user':
+                                    recent_user_msg = msg['content']
+                                    break
+                                    
+                            # Try to extract a topic from the recent message
+                            potential_query = ""
+                            if "about" in recent_user_msg.lower():
+                                potential_query = recent_user_msg.lower().split("about")[-1].strip()
+                                if potential_query.startswith("the "):
+                                    potential_query = potential_query[4:]
+                            
+                            if potential_query:
+                                parsed_args["query"] = potential_query
+                                logger.info(f"Added missing query parameter: {potential_query}")
+                            else:
+                                # Skip function call if we still can't determine the query
+                                logger.warning("Skipping send_whatsapp_info call due to missing query parameter")
+                                await self.emit('llmreply', {
+                                    "partialResponseIndex": None,
+                                    "partialResponse": "I'm not sure what information you'd like me to send. Could you please tell me specifically what you want to know about?"
+                                }, interaction_count)
+                                continue
                     except Exception as e:
                         logger.error(f"Error parsing function arguments: {str(e)}. Raw args: {function_args}")
                         parsed_args = {}
@@ -192,7 +239,24 @@ class OpenAIService(AbstractLLMService):
                     logger.info(f"Function {function_name} called with args: {parsed_args}")
 
                     if function_name != "end_call":
-                        await self.completion(function_response, interaction_count, 'function', function_name)
+                        # For WhatsApp functions, we prevent the recursive call by handling differently
+                        if function_name in ['send_whatsapp_info', 'send_whatsapp_summary']:
+                            # Store response but don't trigger another completion
+                            self.user_context.append({"role": "function", "name": function_name, "content": function_response})
+                            
+                            # Add a synthetic assistant response to prevent the loop
+                            synthetic_response = "Is there anything else you'd like to know?"
+                            self.user_context.append({"role": "assistant", "content": synthetic_response})
+                            
+                            # Send the synthetic response to TTS
+                            await self.emit('llmreply', {
+                                "partialResponseIndex": self.partial_response_index,
+                                "partialResponse": synthetic_response
+                            }, interaction_count)
+                            self.partial_response_index += 1
+                        else:
+                            # Normal recursive call for other functions
+                            await self.completion(function_response, interaction_count, 'function', function_name)
 
             # Emit any remaining content in the buffer
             if self.sentence_buffer.strip():

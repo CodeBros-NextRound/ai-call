@@ -58,6 +58,64 @@ tools = [
             },
             "say": "I'll schedule that event for you. Just a moment while I add it to your calendar."
         }
+    },
+    
+    {
+        "type": "function",
+        "function": {
+            "name": "send_whatsapp_summary",
+            "description": "Send a summary of the conversation to the user's WhatsApp. ONLY use this when the user EXPLICITLY requests a summary to be sent to WhatsApp. DO NOT use this function automatically at the end of calls or repeatedly during the same call unless specifically requested again by the user.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "to_number": {
+                        "type": "string",
+                        "description": "The phone number to send the WhatsApp message to (optional, defaults to caller's number)"
+                    },
+                    "include_transcript": {
+                        "type": "boolean",
+                        "description": "Whether to include the full conversation transcript in the summary (optional, defaults to false)"
+                    },
+                    "force_send": {
+                        "type": "boolean",
+                        "description": "Force send even if a summary was sent recently (use only when user explicitly asks again for a summary)"
+                    }
+                },
+                "required": []
+            },
+            "say": "I'll send a summary of our conversation to your WhatsApp. You should receive it shortly."
+        }
+    },
+    
+    {
+        "type": "function",
+        "function": {
+            "name": "send_whatsapp_info",
+            "description": "Send specific information to the user's WhatsApp. Use this function ONLY when a user EXPLICITLY asks for information to be sent to their WhatsApp AND you know exactly what topic they want information about. Never call this function with an empty query parameter.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "The SPECIFIC information topic the user wants sent (e.g., 'Hyderabad', 'python programming', 'healthy recipes'). This must be extracted from user's request and CANNOT be empty."
+                    },
+                    "info_type": {
+                        "type": "string",
+                        "description": "General category of information (optional)"
+                    },
+                    "to_number": {
+                        "type": "string",
+                        "description": "The phone number to send the WhatsApp message to (optional, defaults to caller's number)"
+                    },
+                    "custom_text": {
+                        "type": "string",
+                        "description": "Custom text to send instead of generating content (optional)"
+                    }
+                },
+                "required": ["query"]
+            },
+            "say": "I'll send that information to your WhatsApp right away. You should receive it shortly."
+        }
     }
 ]
 
