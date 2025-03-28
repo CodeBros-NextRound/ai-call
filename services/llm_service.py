@@ -11,7 +11,7 @@ from functions.function_manifest import tools
 from logger_config import get_logger
 from services.call_context import CallContext
 from services.event_emmiter import EventEmitter
-
+from datetime import datetime
 logger = get_logger("LLMService")
 
 class AbstractLLMService(EventEmitter, ABC):

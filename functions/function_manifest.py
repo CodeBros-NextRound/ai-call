@@ -28,15 +28,14 @@ tools = [
     "type": "function",
     "function": {
         "name": "schedule_meet",
-        "description": "Schedules a meeting in the user's Google Calendar only when the user provides a specific date, start time, end time, and purpose always wait for all these parameters only then call this function dont make you parameters on your own"
-        "",
+        "description": "Schedules a meeting in the user's Google Calendar only when the user provides a specific date, start time, end time, and purpose always wait for all these parameters only then call this function dont make you parameters on your own make sure it is accurate and only use this function when all information required is there are confirmed",
         "parameters": {
             "type": "object",
             "properties": {
                 "date": {
                     "type": "string",
                     "format": "date",
-                    "description": "The date of the meeting in ISO 8601 format (YYYY-MM-DD)."
+                    "description": "The date of the meeting in ISO 8601 format (YYYY-MM-DD) you can give output like today, tomorrow, day after tomorrow too if the user says so"
                 },
                 "starttime": {
                     "type": "string",
@@ -51,7 +50,7 @@ tools = [
                 "purpose": {
                     "type": "string",
                     "description": "The purpose or title of the meeting."
-                }
+                },
             },
             "required": ["date", "starttime", "endtime", "purpose"]
         },
